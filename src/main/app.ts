@@ -104,6 +104,16 @@ export class KandoApp {
    */
   private menuSettings: Settings<IMenuSettings>;
 
+  /** @returns The currently used backend. */
+  public getBackend() {
+    return this.backend;
+  }
+
+  /** @returns Information about the window manager state when the latest menu was opened. */
+  public getLastWMInfo() {
+    return this.lastWMInfo;
+  }
+
   /** This is called when the app is started. It initializes the backend and the window. */
   public async init() {
     // Bail out if the backend is not available.
@@ -140,12 +150,14 @@ export class KandoApp {
           fadeOutDuration: 200,
           enableMarkingMode: true,
           enableTurboMode: true,
+          hoverModeNeedsConfirmation: false,
           gestureMinStrokeLength: 150,
           gestureMinStrokeAngle: 20,
           gestureJitterThreshold: 10,
           gesturePauseTimeout: 100,
           fixedStrokeLength: 0,
           rmbSelectsParent: false,
+          enableGamepad: true,
           gamepadBackButton: 1,
           gamepadCloseButton: 2,
         },
@@ -521,9 +533,11 @@ export class KandoApp {
 
         // We have to pass the size of the window to the renderer because window.innerWidth
         // and window.innerHeight are not reliable when the window has just been resized.
+        // Also, we incorporate the zoom factor of the window so that the clamping to the
+        // work area is done correctly.
         const windowSize = {
-          x: workarea.width,
-          y: workarea.height,
+          x: workarea.width / this.window.webContents.getZoomFactor(),
+          y: workarea.height / this.window.webContents.getZoomFactor(),
         };
 
         // Send the menu to the renderer process. If the menu is centered, we delay the
@@ -542,6 +556,7 @@ export class KandoApp {
             centeredMode: this.lastMenu.centered,
             anchoredMode: this.lastMenu.anchored,
             warpMouse: this.lastMenu.warpMouse,
+            hoverMode: this.lastMenu.hoverMode,
           },
           {
             appName: info.appName,
@@ -913,6 +928,10 @@ export class KandoApp {
         scale = display.scaleFactor;
       }
 
+      // Regardless of the platform, we have to scale the movement to the zoom factor of
+      // the window.
+      scale *= this.window.webContents.getZoomFactor();
+
       this.backend.movePointer(Math.floor(dist.x * scale), Math.floor(dist.y * scale));
     });
 
@@ -922,7 +941,7 @@ export class KandoApp {
     ipcMain.on('select-item', (event, path) => {
       const execute = (item: DeepReadonly<IMenuItem>) => {
         ItemActionRegistry.getInstance()
-          .execute(item, this.backend, this.lastWMInfo)
+          .execute(item, this)
           .catch((error) => {
             KandoApp.showError('Failed to execute action', error.message || error);
           });
